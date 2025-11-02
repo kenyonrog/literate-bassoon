@@ -1,3 +1,5 @@
+-- This is a script that handles client and server logic for a basic viewmodel
+
 -- Services
 local userInputService = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
@@ -16,9 +18,9 @@ local WeaponServer = {}
 WeaponClient.__index = WeaponClient
 WeaponServer.__index = WeaponServer
 
------------------------------------------------------
--- CLIENT SIDE WEAPON LOGIC (Viewmodel + User Input)
------------------------------------------------------
+--CLIENT SIDE LOGIC
+--------------------------------------------
+
 function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 	print("Initializing Weapon")
 	local self = setmetatable({}, WeaponClient)
@@ -73,7 +75,7 @@ function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 				end
 			end
 
-			-- Right-click → ADS
+			-- Right-click to ADS
 			if input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
 				self.isADS = true
 				self.viewmodel:playAnimation(self.animations.ADS)
@@ -183,9 +185,8 @@ function WeaponClient:fireWeapon()
 	self.fireDebounce = false
 end
 
------------------------------------------------------
--- SERVER SIDE WEAPON LOGIC (Damage + Hit Detection)
------------------------------------------------------
+-- SERVER LOGIC
+--------------------
 
 -- Checks if ray hit a humanoid
 local function hitHumanoid(instance: Instance)
@@ -317,7 +318,7 @@ function WeaponServer:fireWeapon(cameraCF:CFrame, isADS:boolean)
 	self.lastGunshot = currentTime
 end
 
--- Return correct handler based on environment
+-- Return correct handler based on if the code is being ran on server or client
 if isServer then
 	return WeaponServer
 else
