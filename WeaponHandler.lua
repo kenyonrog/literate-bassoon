@@ -1,3 +1,4 @@
+-- Services
 local userInputService = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
 local debrisService = game:GetService("Debris")
@@ -6,53 +7,65 @@ local replicatedStorage = game.ReplicatedStorage
 local springModule = require(replicatedStorage.Modules.Libraries.Spring)
 local helperFunctions = require(replicatedStorage.Modules.Extra.HelperFunctions)
 
+-- Check if this script is running on server or client
 local isServer = runService:IsServer()
 
+-- Weapon handler tables
 local WeaponClient = {}
 local WeaponServer = {}
 WeaponClient.__index = WeaponClient
 WeaponServer.__index = WeaponServer
 
----------------------------
--- CLIENT SIDE WEAPON LOGIC
----------------------------
+-----------------------------------------------------
+-- CLIENT SIDE WEAPON LOGIC (Viewmodel + User Input)
+-----------------------------------------------------
 function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 	print("Initializing Weapon")
 	local self = setmetatable({}, WeaponClient)
-	self.guiHandler = require(replicatedStorage.Modules.Handlers.GuiHandler)
 
+	-- Gui + asset references
+	self.guiHandler = require(replicatedStorage.Modules.Handlers.GuiHandler)
 	self.values = weaponFolder.Values
 	self.sounds = weaponModel.Sounds
 	self.animations = weaponFolder.Animations
 	self.events = replicatedStorage.Weapons.Events
 	self.viewmodel = viewmodel
 
+	-- Initial state
 	self.ammo = self.values.MaxAmmo.Value
 	self.camera = workspace.CurrentCamera
-
 	self.isFiring = false
 
+	-- Play equip + idle animations
 	self.sounds.EquipSound:Play()
 	self.viewmodel:playAnimation(self.animations.Equip)
 	self.viewmodel:playAnimation(self.animations.Idle)
+
+	-- Preloads animations to prevent stutter
 	self.viewmodel:preloadAnimation(self.animations.Reload)
 	self.viewmodel:preloadAnimation(self.animations.ADS)
 	self.viewmodel:preloadAnimation(self.animations.ADSShoot)
 
+	-- Update GUI ammo display
 	self.events.AmmoChanged:Fire(self.ammo, self.values.MaxAmmo.Value)
 	self.guiHandler.setAmmoLabelVisibility(true)
 
+	-- Handle input start (shoot, ADS, reload)
 	self.inputBeginConnection = userInputService.InputBegan:Connect(function(input, gpe)
 		if not gpe then
+			-- Primary fire
 			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
 				if weaponFolder:GetAttribute("automatic") then
+					-- Automatic: loop on heartbeat
 					helperFunctions.safeDisconnect(self.firingConnection)
 					self.isFiring = true
 					self.firingConnection = runService.Heartbeat:Connect(function(dt) self:fireWeapon() end)
 				elseif weaponFolder:GetAttribute("manual") then
+					-- Manual: shoot once
 					self:fireWeapon()
 				end
 
+				-- Play empty sound if out of ammo
 				if self.ammo <= 0 and not self.isReloading then
 					self.sounds.EmptyClip:Play()
 					helperFunctions.safeDisconnect(self.firingConnection)
@@ -60,22 +73,27 @@ function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 				end
 			end
 
+			-- Right-click → ADS
 			if input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
 				self.isADS = true
 				self.viewmodel:playAnimation(self.animations.ADS)
 			end
 
+			-- Reload
 			if input.KeyCode == Enum.KeyCode.R or input.KeyCode == Enum.KeyCode.ButtonX then
 				self:reloadWeapon()
 			end
 		end
 
+		-- If UI captured input, stop firing
 		if gpe then
 			helperFunctions.safeDisconnect(self.firingConnection)
 		end
 	end)
 
+	-- Handle input end (stop firing / exit ADS)
 	self.inputEndConnection = userInputService.InputEnded:Connect(function(input, gpe)
+		-- Stop automatic fire when trigger released
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
 			if weaponFolder:GetAttribute("automatic") then
 				self.isFiring = false
@@ -83,6 +101,7 @@ function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 			end
 		end
 
+		-- Exit ADS when right click released
 		if not gpe then
 			if input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
 				self.isADS = false
@@ -94,6 +113,7 @@ function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 	return self
 end
 
+-- Cleanup when weapon unequipped
 function WeaponClient:uninit()
 	self.inputBeginConnection:Disconnect()
 	self.inputEndConnection:Disconnect()
@@ -102,6 +122,7 @@ function WeaponClient:uninit()
 	self.guiHandler.setAmmoLabelVisibility(false)
 end
 
+-- Handles reloading animations, sound, and timing
 function WeaponClient:reloadWeapon()
 	if self.ammo == self.values.MaxAmmo.Value then return end
 	if self.isFiring then return end
@@ -110,26 +131,26 @@ function WeaponClient:reloadWeapon()
 
 	self.events.Reload:FireServer()
 
+	-- Sync reload animation speed to reload time
 	self.sounds.ReloadSound.PlaybackSpeed = self.sounds.ReloadSound.TimeLength/self.values.ReloadTime.Value
-
 	self.viewmodel:playAnimation(self.animations.Reload)
 
 	local tracks = self.viewmodel:getAnimationTracks(self.animations.Reload)
 	tracks[1]:AdjustSpeed(tracks[1].Length/self.values.ReloadTime.Value)
 	tracks[2]:AdjustSpeed(tracks[2].Length/self.values.ReloadTime.Value)
 
+	-- UI reload bar
 	self.guiHandler.reloading(self.values.ReloadTime.Value)
 
 	self.sounds.ReloadSound:Play()
-
 	task.wait(self.values.ReloadTime.Value)
 
 	self.ammo = self.values.MaxAmmo.Value
 	self.events.AmmoChanged:Fire(self.ammo, self.values.MaxAmmo.Value)
-
 	self.isReloading = false
 end
 
+-- Client firing logic (animation + muzzle flash + telling server to shoot)
 function WeaponClient:fireWeapon()
 	if self.isReloading then return end
 	if self.ammo <= 0 then return end
@@ -138,31 +159,35 @@ function WeaponClient:fireWeapon()
 
 	self.events.AmmoChanged:Fire(self.ammo, self.values.MaxAmmo.Value)
 
+	-- Send shot to server with camera direction
 	local camera = workspace.CurrentCamera
-
 	self.events.Fire:FireServer(camera.CFrame, self.isADS)
 
+	-- Play appropriate shooting animation
 	if not self.isADS then
 		self.viewmodel:playAnimation(self.animations.Shoot)		
 	else
 		self.viewmodel:playAnimation(self.animations.ADSShoot)	
 	end
 
+	-- Update HUD
 	self.guiHandler.updateAmmoLabel(self.ammo, self.values.MaxAmmo.Value)
 
+	-- Muzzle flash
 	self.viewmodel:getWeaponModel().GunPoint.MuzzleFlash1:Emit();
 	self.viewmodel:getWeaponModel().GunPoint.MuzzleFlash2:Emit();
 
+	-- Enforce fire rate
 	self.fireDebounce = true
 	task.wait(self.values.ShotDelay.Value)
 	self.fireDebounce = false
 end
 
----------------------------
--- SERVER SIDE WEAPON LOGIC
----------------------------
+-----------------------------------------------------
+-- SERVER SIDE WEAPON LOGIC (Damage + Hit Detection)
+-----------------------------------------------------
 
--- detect humanoid hit
+-- Checks if ray hit a humanoid
 local function hitHumanoid(instance: Instance)
 	local character = instance.Parent
 	if not character then return end
@@ -172,7 +197,7 @@ local function hitHumanoid(instance: Instance)
 	end
 end
 
--- create bullethole visual
+-- Places a bullet hole decal relative to surface normal
 local function createBulletHole(raycastResult: RaycastResult)
 	local bulletHoleTypes = replicatedStorage.Weapons.BulletHoles
 	local material = raycastResult.Instance.Material
@@ -188,18 +213,20 @@ local function createBulletHole(raycastResult: RaycastResult)
 	debrisService:AddItem(hole, 100)
 end
 
+-- Server-side initialization for damage + gun welds
 function WeaponServer.init(weaponFolder, player)
 	local self = setmetatable({}, WeaponServer)
 	self.values = weaponFolder.Values
 	self.remotes = replicatedStorage.Weapons.Events
 	self.ammo = self.values.MaxAmmo.Value
 	self.player = player
-
 	self.lastGunshot = 0
 
+	-- Clone weapon model into player's character
 	self.weaponClone = weaponFolder.Weapon:Clone()
 	self.weaponClone.Parent = player.Character
 
+	-- Attach weapon to right arm using Motor6D
 	local motor6d = Instance.new("Motor6D")
 	motor6d.Parent = player.Character["Right Arm"]
 	motor6d.Part0 = player.Character["Right Arm"]
@@ -215,17 +242,17 @@ function WeaponServer:uninit()
 	self.weaponClone:Destroy()
 end
 
+-- Server reload (no UI, no animation)
 function WeaponServer:reloadWeapon()
 	if self.ammo == self.values.MaxAmmo.Value then return end
 	if self.isReloading then return end
-
 	self.isReloading = true
 	task.wait(self.values.ReloadTime.Value)
 	self.isReloading = false
-
 	self.ammo = self.values.MaxAmmo.Value
 end
 
+-- Apply damage based on hit part
 function WeaponServer:damageDetection(rayResult: RaycastResult)
 	local humanoid, bodyPart = hitHumanoid(rayResult.Instance)
 	if not humanoid then return false end
@@ -239,6 +266,7 @@ function WeaponServer:damageDetection(rayResult: RaycastResult)
 	return true
 end
 
+-- Handles bullet spread + raycasting
 function WeaponServer:fireRay(startCF: CFrame, isADS: boolean, rayparams: RaycastParams, onHit)
 	if not rayparams then
 		rayparams = RaycastParams.new()
@@ -250,7 +278,7 @@ function WeaponServer:fireRay(startCF: CFrame, isADS: boolean, rayparams: Raycas
 	local firstRay = workspace:Raycast(startCF.Position, direction, rayparams)
 
 	if firstRay then
-		-- Calculate bullet spread
+		-- Spread calculation
 		local baseDir = (firstRay.Position - startCF.Position).Unit
 		local maxSpread = isADS and self.values.ADSSpread.Value or self.values.HipSpread.Value
 
@@ -267,9 +295,11 @@ function WeaponServer:fireRay(startCF: CFrame, isADS: boolean, rayparams: Raycas
 	end
 end
 
+-- Main server firing logic
 function WeaponServer:fireWeapon(cameraCF:CFrame, isADS:boolean)
 	local currentTime = tick()
 
+	-- Fire rate + ammo + reload checks
 	if currentTime - self.lastGunshot < self.values.ShotDelay.Value then return end
 	if self.ammo <= 0 then return end
 	if self.isReloading then return end
@@ -277,6 +307,7 @@ function WeaponServer:fireWeapon(cameraCF:CFrame, isADS:boolean)
 	self.ammo -= 1
 	self.weaponClone.Sounds.FireSound:Play()
 
+	-- Raycast and apply damage / effects
 	self:fireRay(cameraCF, isADS, nil, function(rayResult)
 		if not self:damageDetection(rayResult) then
 			createBulletHole(rayResult)
@@ -286,6 +317,7 @@ function WeaponServer:fireWeapon(cameraCF:CFrame, isADS:boolean)
 	self.lastGunshot = currentTime
 end
 
+-- Return correct handler based on environment
 if isServer then
 	return WeaponServer
 else
