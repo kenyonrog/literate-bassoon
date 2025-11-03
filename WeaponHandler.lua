@@ -93,7 +93,7 @@ function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 		end
 	end)
 
-	-- Handle input end (stop firing / exit ADS)
+	-- Handle input end
 	self.inputEndConnection = userInputService.InputEnded:Connect(function(input, gpe)
 		-- Stop automatic fire when trigger released
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
@@ -115,7 +115,7 @@ function WeaponClient.init(viewmodel, weaponFolder:Folder, weaponModel:Model)
 	return self
 end
 
--- Cleanup when weapon unequipped
+-- Cleanup when weapon uninitalized
 function WeaponClient:uninit()
 	self.inputBeginConnection:Disconnect()
 	self.inputEndConnection:Disconnect()
@@ -152,7 +152,7 @@ function WeaponClient:reloadWeapon()
 	self.isReloading = false
 end
 
--- Client firing logic (animation + muzzle flash + telling server to shoot)
+-- Client firing logic 
 function WeaponClient:fireWeapon()
 	if self.isReloading then return end
 	if self.ammo <= 0 then return end
@@ -214,7 +214,7 @@ local function createBulletHole(raycastResult: RaycastResult)
 	debrisService:AddItem(hole, 100)
 end
 
--- Server-side initialization for damage + gun welds
+-- Server-side initialization for damage and gun welds
 function WeaponServer.init(weaponFolder, player)
 	local self = setmetatable({}, WeaponServer)
 	self.values = weaponFolder.Values
@@ -267,7 +267,7 @@ function WeaponServer:damageDetection(rayResult: RaycastResult)
 	return true
 end
 
--- Handles bullet spread + raycasting
+-- Handles bullet spread and raycasting
 function WeaponServer:fireRay(startCF: CFrame, isADS: boolean, rayparams: RaycastParams, onHit)
 	if not rayparams then
 		rayparams = RaycastParams.new()
@@ -300,7 +300,7 @@ end
 function WeaponServer:fireWeapon(cameraCF:CFrame, isADS:boolean)
 	local currentTime = tick()
 
-	-- Fire rate + ammo + reload checks
+	-- Fire rate, ammo, and reload checks
 	if currentTime - self.lastGunshot < self.values.ShotDelay.Value then return end
 	if self.ammo <= 0 then return end
 	if self.isReloading then return end
