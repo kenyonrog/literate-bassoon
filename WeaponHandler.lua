@@ -1,4 +1,4 @@
--- This is a script that handles client and server logic for a basic viewmodel
+-- This is a module script that handles client and server logic for a basic FPS viewmodel
 
 -- Services
 local userInputService = game:GetService("UserInputService")
